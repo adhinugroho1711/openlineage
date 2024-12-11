@@ -20,6 +20,46 @@ if ! command -v java >/dev/null 2>&1; then
     sudo apt-get install -y openjdk-11-jre-headless
 fi
 
+# Create Marquez directory
+sudo mkdir -p $MARQUEZ_DIR
+sudo chown -R $USER:$USER $MARQUEZ_DIR
+
+# Download and verify Marquez
+log "Downloading Marquez..."
+MARQUEZ_JAR="marquez-${MARQUEZ_VERSION}.jar"
+MARQUEZ_URL="https://github.com/MarquezProject/marquez/releases/download/v${MARQUEZ_VERSION}/${MARQUEZ_JAR}"
+
+# Remove existing jar if it exists
+rm -f "${MARQUEZ_DIR}/${MARQUEZ_JAR}"
+
+# Download with wget and show progress
+wget --progress=dot:giga "${MARQUEZ_URL}" -O "${MARQUEZ_DIR}/${MARQUEZ_JAR}.tmp"
+
+# Verify the downloaded file
+if [ ! -f "${MARQUEZ_DIR}/${MARQUEZ_JAR}.tmp" ]; then
+    log_error "Failed to download Marquez JAR"
+    exit 1
+fi
+
+# Check file size (should be more than 1MB)
+FILE_SIZE=$(stat -f%z "${MARQUEZ_DIR}/${MARQUEZ_JAR}.tmp" 2>/dev/null || stat -c%s "${MARQUEZ_DIR}/${MARQUEZ_JAR}.tmp")
+if [ "$FILE_SIZE" -lt 1000000 ]; then
+    log_error "Downloaded file is too small (${FILE_SIZE} bytes). Minimum size should be 1MB"
+    rm -f "${MARQUEZ_DIR}/${MARQUEZ_JAR}.tmp"
+    exit 1
+fi
+
+# Verify it's a valid JAR file
+if ! file "${MARQUEZ_DIR}/${MARQUEZ_JAR}.tmp" | grep -q "Java archive"; then
+    log_error "Downloaded file is not a valid JAR file"
+    rm -f "${MARQUEZ_DIR}/${MARQUEZ_JAR}.tmp"
+    exit 1
+fi
+
+# Move temporary file to final location
+mv "${MARQUEZ_DIR}/${MARQUEZ_JAR}.tmp" "${MARQUEZ_DIR}/${MARQUEZ_JAR}"
+chmod +x "${MARQUEZ_DIR}/${MARQUEZ_JAR}"
+
 # Setup PostgreSQL if not already installed
 if ! command -v psql >/dev/null 2>&1; then
     log "Installing PostgreSQL..."
@@ -49,16 +89,6 @@ sudo -u postgres psql -c "DROP USER IF EXISTS ${POSTGRES_USER};"
 sudo -u postgres psql -c "CREATE USER ${POSTGRES_USER} WITH PASSWORD '${POSTGRES_PASSWORD}';"
 sudo -u postgres psql -c "CREATE DATABASE ${POSTGRES_DB} OWNER ${POSTGRES_USER};"
 sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE ${POSTGRES_DB} TO ${POSTGRES_USER};"
-
-# Create Marquez directory
-sudo mkdir -p $MARQUEZ_DIR
-sudo chown -R $USER:$USER $MARQUEZ_DIR
-
-# Download Marquez if not already present
-if [ ! -f "$MARQUEZ_DIR/marquez-${MARQUEZ_VERSION}.jar" ]; then
-    log "Downloading Marquez..."
-    wget -q "https://github.com/MarquezProject/marquez/releases/download/v${MARQUEZ_VERSION}/marquez-${MARQUEZ_VERSION}.jar" -O "$MARQUEZ_DIR/marquez-${MARQUEZ_VERSION}.jar"
-fi
 
 # Create Marquez config
 cat > $MARQUEZ_DIR/marquez.yml << EOL
@@ -103,13 +133,21 @@ Type=simple
 User=$USER
 WorkingDirectory=$MARQUEZ_DIR
 Environment="JAVA_OPTS=-Xmx1g"
-ExecStart=/usr/bin/java \$JAVA_OPTS -jar $MARQUEZ_DIR/marquez-${MARQUEZ_VERSION}.jar server $MARQUEZ_DIR/marquez.yml
-Restart=always
+ExecStart=/usr/bin/java \${JAVA_OPTS} -jar ${MARQUEZ_DIR}/${MARQUEZ_JAR} server ${MARQUEZ_DIR}/marquez.yml
+Restart=on-failure
 RestartSec=5
+StandardOutput=append:${MARQUEZ_DIR}/marquez.log
+StandardError=append:${MARQUEZ_DIR}/marquez.error.log
 
 [Install]
 WantedBy=multi-user.target
 EOL
+
+# Stop Marquez if it's running
+sudo systemctl stop marquez 2>/dev/null
+
+# Clean up old logs
+rm -f ${MARQUEZ_DIR}/marquez.log ${MARQUEZ_DIR}/marquez.error.log
 
 # Reload systemd and start Marquez
 sudo systemctl daemon-reload
@@ -127,12 +165,15 @@ for i in {1..60}; do
 done
 echo ""
 
-# Check Marquez logs if service fails to start
+# Check if Marquez is running
 if ! curl -s http://localhost:${MARQUEZ_PORT}/api/v1/namespaces > /dev/null; then
     log_error "Failed to start Marquez"
-    echo "Last 50 lines of Marquez log:"
-    tail -n 50 ${MARQUEZ_DIR}/marquez.log
+    echo "=== Marquez Service Status ==="
     sudo systemctl status marquez
+    echo "=== Last 50 lines of Marquez log ==="
+    tail -n 50 ${MARQUEZ_DIR}/marquez.log
+    echo "=== Last 50 lines of Marquez error log ==="
+    tail -n 50 ${MARQUEZ_DIR}/marquez.error.log
     exit 1
 else
     log_success "Marquez setup completed successfully"

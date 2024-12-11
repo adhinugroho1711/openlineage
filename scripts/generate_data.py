@@ -39,17 +39,25 @@ def upload_to_minio(df):
         secure=False
     )
     
-    bucket_name = "test_lineage"
+    bucket_name = "testlineage"  # Changed to valid bucket name
+    
     try:
+        # Check if bucket exists and create if it doesn't
         if not client.bucket_exists(bucket_name):
             client.make_bucket(bucket_name)
             print(f"Created bucket: {bucket_name}")
+        else:
+            print(f"Using existing bucket: {bucket_name}")
         
+        # Convert DataFrame to parquet format
+        print("Converting data to parquet format...")
         parquet_buffer = io.BytesIO()
         df.to_parquet(parquet_buffer, engine='pyarrow', index=False)
         parquet_buffer.seek(0)
         parquet_length = len(parquet_buffer.getvalue())
         
+        # Upload file
+        print(f"Uploading data ({parquet_length} bytes)...")
         client.put_object(
             bucket_name,
             "sales_data.parquet",
@@ -57,7 +65,15 @@ def upload_to_minio(df):
             parquet_length,
             content_type="application/octet-stream"
         )
-        print(f"Uploaded sales_data.parquet to bucket: {bucket_name}")
+        print(f"Successfully uploaded sales_data.parquet to bucket: {bucket_name}")
+        
+        # Verify upload
+        try:
+            stat = client.stat_object(bucket_name, "sales_data.parquet")
+            print(f"Verified upload - File size: {stat.size} bytes")
+        except Exception as e:
+            print(f"Warning: Could not verify upload: {str(e)}")
+            
     except Exception as e:
         print(f"Error: {str(e)}")
         raise e
