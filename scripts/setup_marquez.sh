@@ -4,9 +4,10 @@
 SCRIPT_DIR="$(dirname "$0")"
 source "${SCRIPT_DIR}/utils.sh"
 
-MARQUEZ_VERSION="0.40.0"
+MARQUEZ_VERSION="0.50.0"
+OPENLINEAGE_VERSION="2.0.2"
 MARQUEZ_DIR="/opt/marquez"
-MARQUEZ_PORT=3000
+MARQUEZ_PORT=5000
 POSTGRES_USER="marquez"
 POSTGRES_PASSWORD="marquez"
 POSTGRES_DB="marquez"
@@ -27,7 +28,7 @@ sudo chown -R $USER:$USER $MARQUEZ_DIR
 # Download and verify Marquez
 log "Downloading Marquez..."
 MARQUEZ_JAR="marquez-${MARQUEZ_VERSION}.jar"
-MARQUEZ_URL="https://github.com/MarquezProject/marquez/releases/download/v${MARQUEZ_VERSION}/${MARQUEZ_JAR}"
+MARQUEZ_URL="https://repo1.maven.org/maven2/io/github/marquezproject/marquez-java/${MARQUEZ_VERSION}/marquez-java-${MARQUEZ_VERSION}.jar"
 
 # Remove existing jar if it exists
 rm -f "${MARQUEZ_DIR}/${MARQUEZ_JAR}"
@@ -180,3 +181,39 @@ else
     log "Marquez API is running at http://localhost:${MARQUEZ_PORT}"
     log "Marquez Admin interface is available at http://localhost:3001"
 fi
+
+# Setup Marquez UI using Docker
+check_docker() {
+    if ! command -v docker &> /dev/null; then
+        error "Docker is not installed. Please install Docker first."
+        exit 1
+    fi
+}
+
+setup_marquez_ui() {
+    log "Setting up Marquez UI using Docker..."
+    
+    # Pull the Marquez UI image
+    docker pull marquezproject/marquez-web:${MARQUEZ_VERSION}
+    
+    # Stop and remove existing container if it exists
+    docker rm -f marquez-web 2>/dev/null || true
+    
+    # Run Marquez Web UI
+    docker run -d \
+        --name marquez-web \
+        -p 3000:3000 \
+        -e MARQUEZ_HOST=host.docker.internal \
+        -e MARQUEZ_PORT=5000 \
+        marquezproject/marquez-web:${MARQUEZ_VERSION}
+    
+    if [ $? -eq 0 ]; then
+        log "Marquez UI is running at http://localhost:3000"
+    else
+        error "Failed to start Marquez UI"
+        exit 1
+    fi
+}
+
+check_docker
+setup_marquez_ui
