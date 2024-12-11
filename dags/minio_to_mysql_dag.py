@@ -26,12 +26,14 @@ default_args = {
     'retry_delay': timedelta(minutes=5),
 }
 
+# MinIO configuration
 MINIO_ENDPOINT = 'localhost:9000'
 MINIO_ACCESS_KEY = 'minioadmin'
 MINIO_SECRET_KEY = 'minioadmin'
 MINIO_BUCKET = 'testlineage'
 MINIO_OBJECT = 'sales_data.parquet'
 
+# MySQL configuration
 MYSQL_HOST = 'localhost'
 MYSQL_USER = 'root'
 MYSQL_PASSWORD = 'root'
@@ -72,6 +74,7 @@ def get_mysql_dataset():
     )
 
 def extract_from_minio(**context):
+    """Extract data from MinIO"""
     client = Minio(
         MINIO_ENDPOINT,
         access_key=MINIO_ACCESS_KEY,
@@ -80,12 +83,16 @@ def extract_from_minio(**context):
     )
     
     try:
+        # Get data from MinIO
         data = client.get_object(MINIO_BUCKET, MINIO_OBJECT)
         parquet_buffer = io.BytesIO(data.read())
         df = pd.read_parquet(parquet_buffer)
         
         # Add OpenLineage metadata
-        context['task_instance'].xcom_push(key='openlineage.inputs', value=[get_minio_dataset()])
+        context['task_instance'].xcom_push(
+            key='openlineage.inputs.datasets', 
+            value=[get_minio_dataset()]
+        )
         
         return df.to_dict('records')
     except Exception as e:
@@ -93,6 +100,7 @@ def extract_from_minio(**context):
         raise e
 
 def create_table(**context):
+    """Create MySQL table if not exists"""
     conn = pymysql.connect(
         host=MYSQL_HOST,
         user=MYSQL_USER,
@@ -120,11 +128,15 @@ def create_table(**context):
         conn.commit()
         
         # Add OpenLineage metadata
-        context['task_instance'].xcom_push(key='openlineage.outputs', value=[get_mysql_dataset()])
+        context['task_instance'].xcom_push(
+            key='openlineage.outputs.datasets', 
+            value=[get_mysql_dataset()]
+        )
     finally:
         conn.close()
 
 def load_to_mysql(**context):
+    """Load data into MySQL"""
     data = context['task_instance'].xcom_pull(task_ids='extract_from_minio')
     
     if not data:
@@ -148,8 +160,14 @@ def load_to_mysql(**context):
         conn.commit()
         
         # Add OpenLineage metadata
-        context['task_instance'].xcom_push(key='openlineage.inputs', value=[get_minio_dataset()])
-        context['task_instance'].xcom_push(key='openlineage.outputs', value=[get_mysql_dataset()])
+        context['task_instance'].xcom_push(
+            key='openlineage.inputs.datasets', 
+            value=[get_minio_dataset()]
+        )
+        context['task_instance'].xcom_push(
+            key='openlineage.outputs.datasets', 
+            value=[get_mysql_dataset()]
+        )
     except Exception as e:
         print(f"Error writing to MySQL: {e}")
         conn.rollback()
