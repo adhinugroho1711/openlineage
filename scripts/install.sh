@@ -1,89 +1,179 @@
 #!/bin/bash
 
-source "$(dirname "$0")/utils.sh"
+# Source utility functions
+SCRIPT_DIR="$(dirname "$0")"
+source "${SCRIPT_DIR}/utils.sh"
 
-# Main installation function
-install() {
-    log "Starting OpenLineage installation..."
-    
-    # Update system and install basic dependencies
+PYTHON_VERSION="3.10"
+AIRFLOW_VERSION="2.7.3"
+AIRFLOW_HOME="/home/ubuntu/airflow"
+VENV_DIR="/home/ubuntu/airflow_env"
+
+# Function to install system dependencies
+install_dependencies() {
     log "Installing system dependencies..."
-    sudo apt update
-    sudo apt install -y openjdk-11-jdk \
-                    python3-pip \
-                    python3-venv \
-                    build-essential \
-                    libpq-dev \
-                    python3-dev \
-                    wget \
-                    mysql-server \
-                    mysql-client \
-                    libmysqlclient-dev
-    check_status "Dependencies installation"
     
-    # Run individual setup scripts
-    source "$(dirname "$0")/setup_mysql.sh"
-    setup_mysql
+    # Update package list
+    sudo apt-get update
     
-    source "$(dirname "$0")/setup_minio.sh"
-    setup_minio
+    # Install Python and other dependencies
+    sudo apt-get install -y \
+        python${PYTHON_VERSION} \
+        python${PYTHON_VERSION}-venv \
+        python3-pip \
+        build-essential \
+        libssl-dev \
+        libffi-dev \
+        python3-dev \
+        pkg-config \
+        curl \
+        wget \
+        lsof
     
-    source "$(dirname "$0")/setup_marquez.sh"
-    setup_marquez
+    check_status "System dependencies installation"
+}
+
+# Function to create and setup Python virtual environment
+setup_virtualenv() {
+    log "Setting up Python virtual environment..."
     
-    source "$(dirname "$0")/setup_airflow.sh"
-    setup_airflow
+    # Create virtual environment if it doesn't exist
+    if [ ! -d "$VENV_DIR" ]; then
+        python${PYTHON_VERSION} -m venv "$VENV_DIR"
+    fi
     
-    log "Installation completed successfully!"
+    # Activate virtual environment
+    source "$VENV_DIR/bin/activate"
+    
+    # Upgrade pip
+    pip install --upgrade pip
+    
+    check_status "Virtual environment setup"
+}
+
+# Function to cleanup previous installation
+cleanup() {
+    log "Cleaning up previous installation..."
+    
+    # Stop all services
+    stop_services
+    
+    # Remove virtual environment if exists
+    if [ -d "$VENV_DIR" ]; then
+        rm -rf "$VENV_DIR"
+    fi
+    
+    # Remove Airflow home directory if exists
+    if [ -d "$AIRFLOW_HOME" ]; then
+        rm -rf "$AIRFLOW_HOME"
+    fi
+    
+    check_status "Cleanup"
 }
 
 # Function to start all services
 start_services() {
-    log_info "Starting all services..."
+    log "Starting all services..."
+    
+    # Start PostgreSQL
+    if command -v psql >/dev/null 2>&1; then
+        sudo systemctl start postgresql
+        wait_for_service "postgresql" 30
+    fi
     
     # Start MySQL
-    log_info "Starting MySQL..."
-    sudo systemctl start mysql
+    if command -v mysql >/dev/null 2>&1; then
+        sudo systemctl start mysql
+        wait_for_service "mysql" 30
+    fi
     
     # Start MinIO
-    log_info "Starting MinIO..."
-    sudo systemctl start minio
+    if command -v minio >/dev/null 2>&1; then
+        sudo systemctl start minio
+        wait_for_service "minio" 30
+    fi
     
     # Start Marquez
-    log_info "Starting Marquez..."
-    sudo systemctl start marquez
+    if [ -f "/etc/systemd/system/marquez.service" ]; then
+        sudo systemctl start marquez
+        wait_for_service "marquez" 30
+    fi
     
     # Start Airflow
-    log_info "Starting Airflow..."
-    source ~/airflow_env/bin/activate
-    airflow webserver -D
-    airflow scheduler -D
-    
-    log_success "All services started"
+    if [ -d "$VENV_DIR" ]; then
+        source "$VENV_DIR/bin/activate"
+        airflow webserver -D
+        airflow scheduler -D
+        sleep 5
+        if pgrep -f "airflow webserver" > /dev/null && pgrep -f "airflow scheduler" > /dev/null; then
+            log_success "Airflow started successfully"
+        else
+            log_error "Failed to start Airflow"
+        fi
+    fi
 }
 
 # Function to stop all services
 stop_services() {
-    log_info "Stopping all services..."
+    log "Stopping all services..."
     
-    # Stop Airflow
-    log_info "Stopping Airflow..."
-    source ~/airflow_env/bin/activate
-    pkill -f "airflow webserver"
-    pkill -f "airflow scheduler"
+    # Stop Airflow if running
+    if [ -d "$VENV_DIR" ]; then
+        source "$VENV_DIR/bin/activate" 2>/dev/null
+        pkill -f "airflow webserver" 2>/dev/null
+        pkill -f "airflow scheduler" 2>/dev/null
+    fi
     
     # Stop other services
-    log_info "Stopping other services..."
-    sudo systemctl stop marquez
-    sudo systemctl stop minio
-    sudo systemctl stop mysql
+    sudo systemctl stop marquez 2>/dev/null
+    sudo systemctl stop minio 2>/dev/null
+    sudo systemctl stop mysql 2>/dev/null
+    sudo systemctl stop postgresql 2>/dev/null
     
     log_success "All services stopped"
 }
 
+# Function to setup all components
+setup_all() {
+    log "Setting up all components..."
+    
+    # Setup MySQL
+    bash "${SCRIPT_DIR}/setup_mysql.sh"
+    
+    # Setup MinIO
+    bash "${SCRIPT_DIR}/setup_minio.sh"
+    
+    # Setup Marquez
+    bash "${SCRIPT_DIR}/setup_marquez.sh"
+    
+    # Setup Airflow
+    bash "${SCRIPT_DIR}/setup_airflow.sh"
+    
+    log_success "Setup completed"
+}
+
+# Function to generate sample data
+generate_data() {
+    log "Generating sample data..."
+    if [ -d "$VENV_DIR" ]; then
+        source "$VENV_DIR/bin/activate"
+        python3 "${SCRIPT_DIR}/generate_data.py"
+    else
+        log_error "Virtual environment not found. Please run setup first."
+        exit 1
+    fi
+}
+
 # Function to check services status
 check_services_status() {
-    log_info "Checking services status..."
+    log "Checking services status..."
+    
+    # Check PostgreSQL
+    if systemctl is-active --quiet postgresql; then
+        log_success "PostgreSQL is running"
+    else
+        log_error "PostgreSQL is not running"
+    fi
     
     # Check MySQL
     if systemctl is-active --quiet mysql; then
@@ -92,18 +182,18 @@ check_services_status() {
         log_error "MySQL is not running"
     fi
     
-    # Check Marquez
-    if systemctl is-active --quiet marquez; then
-        log_success "Marquez is running"
-    else
-        log_error "Marquez is not running"
-    fi
-    
     # Check MinIO
     if systemctl is-active --quiet minio; then
         log_success "MinIO is running"
     else
         log_error "MinIO is not running"
+    fi
+    
+    # Check Marquez
+    if systemctl is-active --quiet marquez; then
+        log_success "Marquez is running"
+    else
+        log_error "Marquez is not running"
     fi
     
     # Check Airflow processes
@@ -120,19 +210,24 @@ check_services_status() {
     fi
 }
 
-# Function to generate sample data
-generate_data() {
-    log "Generating sample data..."
-    source airflow_env/bin/activate
-    python "$(dirname "$0")/generate_data.py"
-    check_status "Data generation"
+# Main installation function
+install() {
+    cleanup
+    log "Starting OpenLineage installation..."
+    install_dependencies
+    setup_virtualenv
+    setup_all
+    start_services
+    log_success "Installation completed successfully!"
 }
 
-# Main execution
+# Main script logic
 case "$1" in
     "install")
-        cleanup
         install
+        ;;
+    "setup")
+        setup_all
         ;;
     "start")
         start_services
@@ -140,17 +235,14 @@ case "$1" in
     "stop")
         stop_services
         ;;
+    "status")
+        check_services_status
+        ;;
     "generate-data")
         generate_data
         ;;
-    "status")
-        log "Checking services status..."
-        systemctl status mysql
-        systemctl status minio
-        ps aux | grep -E "marquez|airflow"
-        ;;
     *)
-        echo "Usage: $0 {install|start|stop|generate-data|status}"
+        echo "Usage: $0 {install|setup|start|stop|status|generate-data}"
         exit 1
         ;;
 esac
