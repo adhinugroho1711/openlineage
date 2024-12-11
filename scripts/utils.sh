@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Color codes for output
+# Colors for logging
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -8,24 +8,73 @@ NC='\033[0m' # No Color
 
 # Logging functions
 log() {
-    echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} $1"
+    echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
 }
 
-error() {
-    echo -e "${RED}[$(date +'%Y-%m-%d %H:%M:%S')] ERROR:${NC} $1"
+log_success() {
+    echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] ${GREEN}✓ $1${NC}"
 }
 
-warning() {
-    echo -e "${YELLOW}[$(date +'%Y-%m-%d %H:%M:%S')] WARNING:${NC} $1"
+log_error() {
+    echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] ${RED}❌ $1${NC}"
 }
 
-# Function to check if command succeeded
+log_warning() {
+    echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] ${YELLOW}⚠ $1${NC}"
+}
+
+# Function to check command status
 check_status() {
     if [ $? -eq 0 ]; then
-        log "✅ $1 successful"
+        log_success "$1 successful"
+        return 0
     else
-        error "❌ $1 failed"
-        exit 1
+        log_error "$1 failed"
+        return 1
+    fi
+}
+
+# Function to check if a service is running
+check_service() {
+    local service_name=$1
+    if systemctl is-active --quiet "$service_name"; then
+        log_success "$service_name is running"
+        return 0
+    else
+        log_error "$service_name is not running"
+        return 1
+    fi
+}
+
+# Function to wait for service to be ready
+wait_for_service() {
+    local service_name=$1
+    local max_attempts=$2
+    local attempt=1
+    
+    while [ $attempt -le $max_attempts ]; do
+        if systemctl is-active --quiet "$service_name"; then
+            log_success "$service_name is ready"
+            return 0
+        fi
+        log "Waiting for $service_name... (attempt $attempt/$max_attempts)"
+        sleep 2
+        attempt=$((attempt + 1))
+    done
+    
+    log_error "$service_name failed to start after $max_attempts attempts"
+    return 1
+}
+
+# Function to check port availability
+check_port() {
+    local port=$1
+    if ! lsof -i :$port > /dev/null; then
+        log_success "Port $port is available"
+        return 0
+    else
+        log_error "Port $port is already in use"
+        return 1
     fi
 }
 
