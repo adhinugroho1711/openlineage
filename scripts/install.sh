@@ -155,13 +155,21 @@ setup_all() {
 # Function to generate sample data
 generate_data() {
     log "Generating sample data..."
-    if [ -d "$VENV_DIR" ]; then
-        source "$VENV_DIR/bin/activate"
-        python3 "${SCRIPT_DIR}/generate_data.py"
-    else
+    if [ ! -d "$VENV_DIR" ]; then
         log_error "Virtual environment not found. Please run setup first."
         exit 1
     fi
+    
+    # Activate virtual environment and install requirements
+    source "$VENV_DIR/bin/activate"
+    
+    log "Installing Python dependencies..."
+    pip install -r "${SCRIPT_DIR}/../requirements.txt"
+    check_status "Dependencies installation"
+    
+    log "Running data generation script..."
+    python3 "${SCRIPT_DIR}/generate_data.py"
+    check_status "Data generation"
 }
 
 # Function to check services status

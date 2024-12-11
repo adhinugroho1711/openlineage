@@ -1,0 +1,6 @@
+pandas==2.1.4
+numpy==1.26.2
+minio==7.2.0
+pyarrow==14.0.1
+apache-airflow==2.7.3
+apache-airflow-providers-openlineage==1.1.0
