@@ -7,7 +7,9 @@ setup_mysql() {
     
     # Install MySQL server if not already installed
     if ! command -v mysql >/dev/null 2>&1; then
-        log "Installing MySQL Server..."
+        log "Installing MySQL Server and required dependencies..."
+        sudo apt-get update
+        sudo apt-get install -y pkg-config python3-dev default-libmysqlclient-dev build-essential
         sudo apt-get install -y mysql-server mysql-client
         check_status "MySQL package installation"
     fi
