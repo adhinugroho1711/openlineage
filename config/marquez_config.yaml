@@ -1,0 +1,64 @@
+server:
+  applicationConnectors:
+    - type: http
+      port: 5000
+  adminConnectors:
+    - type: http
+      port: 5001
+
+db:
+  driverClass: org.postgresql.Driver
+  url: jdbc:postgresql://localhost:5432/marquez
+  user: marquez
+  password: marquez
+
+logging:
+  level: INFO
+  appenders:
+    - type: console
+      threshold: INFO
+      target: stdout
+      logFormat: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{15} - %msg%n"
+
+migrateOnStartup: true
+
+tags:
+  - key: environment
+    value: development
+  - key: team
+    value: data_engineering
+
+graphql:
+  enabled: true
+  port: 5002
+
+metrics:
+  frequency: 1 minute
+
+lineage:
+  inputDatasetIncludeFilter:
+    - ".*"
+  outputDatasetIncludeFilter:
+    - ".*"
+  facets:
+    includeFilter:
+      - ".*"
+    excludeFilter: []
+
+cors:
+  enabled: true
+  allowedOrigins: ["*"]
+  allowedHeaders: ["*"]
+  allowedMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+  allowCredentials: true
+
+security:
+  enabled: false
+  # Uncomment and configure if you want to enable authentication
+  # auth:
+  #   type: basic
+  #   users:
+  #     - username: admin
+  #       password: admin
+  #     - username: user
+  #       password: password
