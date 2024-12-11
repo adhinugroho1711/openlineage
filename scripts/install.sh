@@ -37,32 +37,90 @@ install() {
     log "Installation completed successfully!"
 }
 
-# Start all services
+# Function to start all services
 start_services() {
-    log "Starting all services..."
+    log_info "Starting all services..."
     
-    # Start MySQL if not running
-    if ! systemctl is-active --quiet mysql; then
-        sudo systemctl start mysql
-    fi
+    # Start MySQL
+    log_info "Starting MySQL..."
+    sudo systemctl start mysql
     
-    # Start MinIO if not running
-    if ! systemctl is-active --quiet minio; then
-        sudo systemctl start minio
-    fi
+    # Start MinIO
+    log_info "Starting MinIO..."
+    sudo systemctl start minio
     
     # Start Marquez
-    source "$(dirname "$0")/setup_marquez.sh"
-    start_marquez
+    log_info "Starting Marquez..."
+    sudo systemctl start marquez
     
     # Start Airflow
-    source "$(dirname "$0")/setup_airflow.sh"
-    start_airflow
+    log_info "Starting Airflow..."
+    source ~/airflow_env/bin/activate
+    airflow webserver -D
+    airflow scheduler -D
     
-    log "All services started successfully!"
+    log_success "All services started"
 }
 
-# Generate sample data
+# Function to stop all services
+stop_services() {
+    log_info "Stopping all services..."
+    
+    # Stop Airflow
+    log_info "Stopping Airflow..."
+    source ~/airflow_env/bin/activate
+    pkill -f "airflow webserver"
+    pkill -f "airflow scheduler"
+    
+    # Stop other services
+    log_info "Stopping other services..."
+    sudo systemctl stop marquez
+    sudo systemctl stop minio
+    sudo systemctl stop mysql
+    
+    log_success "All services stopped"
+}
+
+# Function to check services status
+check_services_status() {
+    log_info "Checking services status..."
+    
+    # Check MySQL
+    if systemctl is-active --quiet mysql; then
+        log_success "MySQL is running"
+    else
+        log_error "MySQL is not running"
+    fi
+    
+    # Check Marquez
+    if systemctl is-active --quiet marquez; then
+        log_success "Marquez is running"
+    else
+        log_error "Marquez is not running"
+    fi
+    
+    # Check MinIO
+    if systemctl is-active --quiet minio; then
+        log_success "MinIO is running"
+    else
+        log_error "MinIO is not running"
+    fi
+    
+    # Check Airflow processes
+    if pgrep -f "airflow webserver" > /dev/null; then
+        log_success "Airflow Webserver is running"
+    else
+        log_error "Airflow Webserver is not running"
+    fi
+    
+    if pgrep -f "airflow scheduler" > /dev/null; then
+        log_success "Airflow Scheduler is running"
+    else
+        log_error "Airflow Scheduler is not running"
+    fi
+}
+
+# Function to generate sample data
 generate_data() {
     log "Generating sample data..."
     source airflow_env/bin/activate
